@@ -78,6 +78,7 @@ def benchmark_git(repourl, start, end):
     verify_git_revs(startcommit, endcommit, repo)
 
     print 'Checking out commit ' + startcommit.name_rev[0:40]
+    repo.index.checkout(startcommit)
 
     shutil.rmtree(GIT_DIR)
 
