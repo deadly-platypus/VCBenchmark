@@ -3,8 +3,11 @@
 import shutil
 import sys, argparse, os
 from git import Repo, RemoteProgress
+from subprocess import call
 
 GIT_DIR = 'git-work'
+
+commitslist = []
 
 class CloneProgressPrinter(RemoteProgress):
     def update(self, op_code, cur_count, max_count=None, message=''):
@@ -44,6 +47,7 @@ def find_git_end(repo):
 def verify_git_revs(start, end, repo):
     start_found = False
     end_found = False
+
     for commit in repo.iter_commits():
         if commit == start:
             start_found = True
@@ -53,6 +57,13 @@ def verify_git_revs(start, end, repo):
         if not end_found and start_found:
             raise IncorrectCommitOrder(start, end)
 
+        if end_found:
+            commitslist.append(commit.name_rev[0:40])
+
+        if start_found:
+            break
+
+    commitslist.reverse()
     return
 
 def benchmark_git(repourl, start, end):
@@ -77,10 +88,18 @@ def benchmark_git(repourl, start, end):
 
     verify_git_revs(startcommit, endcommit, repo)
 
-    print 'Checking out commit ' + startcommit.name_rev[0:40]
-    repo.index.checkout(startcommit)
+    print 'Checking out commit ' + commitslist[0]
 
+    os.chdir(GIT_DIR)
+    call(['git', 'checkout', commitslist[0]])
+    print 'Done. Beginning git merges.'
+    for commit in commitslist[1:]:
+        call(['git', 'merge', '-m', 'benchmark',  commit])
+    print 'Done.'
+
+    os.chdir("..")
     shutil.rmtree(GIT_DIR)
+    return
 
 def main():
     args = parse_args()
