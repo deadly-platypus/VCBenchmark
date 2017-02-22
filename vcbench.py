@@ -26,8 +26,10 @@ def parse_args():
     parser = argparse.ArgumentParser(description='Version Control Benchmark')
     parser.add_argument('vc', help='The version control to benchmark',
             choices=['git', 'svn'])
-    parser.add_argument('-s', '--start', help='The commit at which to start')
-    parser.add_argument('-e', '--end', help='The commit at which to end')
+    parser.add_argument('-s', '--start', help="""The commit at which to start.\
+            If omitted, the first commit will be used.""")
+    parser.add_argument('-e', '--end', help="""The commit at which to end. If \
+            omitted, the latest commit will be used.""")
     parser.add_argument('repo', help='The repository location')
     return parser.parse_args()
 
