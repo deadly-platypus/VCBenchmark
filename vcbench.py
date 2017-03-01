@@ -2,10 +2,14 @@
 
 import shutil
 import sys, argparse, os
+import svn.remote
 from git import Repo, RemoteProgress
 from subprocess import call
 
+GITBENCHMARK = 'git-benchmark.sh'
+SVNBENCHMARK = 'svn-benchmark.sh'
 GIT_DIR = 'git-work'
+SVN_DIR = 'svn-work'
 
 commitslist = []
 
@@ -17,10 +21,16 @@ class CloneProgressPrinter(RemoteProgress):
 
 class IncorrectCommitOrder(Exception):
     def __init__(self, start, end):
-        self.start = start
-        self.end = end
+        self.start = str(start)
+        self.end = str(end)
     def __str__(self):
-        return self.start.name_rev + '->' + self.end.name_rev
+        return self.start + '->' + self.end
+
+class CommitNotFound(Exception):
+    def __init__(self, commit):
+        self.commit = commit
+    def __str__(self):
+        return 'Commit ' + str(self.commit) + ' cannot be found.'
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Version Control Benchmark')
@@ -31,6 +41,8 @@ def parse_args():
     parser.add_argument('-e', '--end', help="""The commit at which to end. If \
             omitted, the latest commit will be used.""")
     parser.add_argument('repo', help='The repository location')
+    parser.add_argument('-pre', help='Instruction to run before benchmark')
+    parser.add_argument('-post', help='Instruction to run after benchmark')
     return parser.parse_args()
 
 def find_git_start(repo):
@@ -57,7 +69,7 @@ def verify_git_revs(start, end, repo):
             end_found = True
 
         if not end_found and start_found:
-            raise IncorrectCommitOrder(start, end)
+            raise IncorrectCommitOrder(start.name_rev[0:40], end.name_rev[0:40])
 
         if end_found:
             commitslist.append(commit.name_rev[0:40])
@@ -68,7 +80,7 @@ def verify_git_revs(start, end, repo):
     commitslist.reverse()
     return
 
-def benchmark_git(repourl, start, end):
+def benchmark_git(repourl, start, end, preInst, postInst):
     if os.path.exists(GIT_DIR):
         shutil.rmtree(GIT_DIR)
 
@@ -90,29 +102,108 @@ def benchmark_git(repourl, start, end):
 
     verify_git_revs(startcommit, endcommit, repo)
 
-    print 'Checking out commit ' + commitslist[0]
-
-    os.chdir(GIT_DIR)
-    call(['git', 'checkout', commitslist[0]])
-    print 'Done. Beginning git merges.'
+    fo = open(GITBENCHMARK, 'w')
+    print 'Outputting benchmark'
+    fo.write("#!/usr/bin/sh\n")
+    if preInst:
+        fo.write(preInst + "\n")
+    fo.write("git checkout " + commitslist[0] + "\n")
     for commit in commitslist[1:]:
-        call(['git', 'merge', '-m', 'benchmark',  commit])
+        fo.write("git merge -m \"benchmark\" " + commit)
+    if postInst:
+        fo.write(postInst + "\n")
     print 'Done.'
 
-    os.chdir("..")
     shutil.rmtree(GIT_DIR)
+    return
+
+def find_svn_start(client):
+    end = 0
+    for commit in client.log_default():
+        end = commit
+
+    return end.revision
+
+def find_svn_end(client):
+    for commit in client.log_default():
+        return commit.revision
+
+def verify_svn_revs(startcommit, endcommit, client):
+    start_found = False
+    end_found = False
+    print(startcommit)
+    print(endcommit)
+
+    for commit in client.log_default():
+        if commit.revision == startcommit:
+            start_found = True
+        elif commit.revision == endcommit:
+            end_found = True
+
+        if end_found:
+            commitslist.append(commit.revision)
+
+        if start_found:
+            break
+
+    if not start_found:
+        raise CommitNotFound(startcommit)
+    elif not end_found:
+        raise CommitNotFound(endcommit)
+    elif startcommit > endcommit:
+        raise IncorrectCommitOrder(startcommit, endcommit)
+
+    commitslist.reverse()
+    return
+
+def benchmark_svn(repourl, start, end, preInst, postInst):
+    if os.path.exists(SVN_DIR):
+        shutil.rmtree(SVN_DIR)
+
+    fo = open(SVNBENCHMARK, 'w')
+    client = svn.remote.RemoteClient(repourl)
+    sys.stdout.write('Checking out...')
+    sys.stdout.flush()
+    revision = client.checkout(SVN_DIR)
+    print 'Done'
+
+    if not start:
+        startcommit = find_svn_start(client)
+    else:
+        startcommit = start
+
+    if not end:
+        endcommit = find_svn_end(client)
+    else:
+        endcommit = end
+
+    verify_svn_revs(startcommit, endcommit, client)
+    fo.write('#!/usr/bin/sh\n')
+    fo.write('cd ' + SVN_DIR + '\n')
+    if preInst:
+        fo.write(preInst + "\n")
+    fo.write('svn up -r' + str(commitslist[0]) + '\n')
+    for commit in commitslist[1:]:
+        fo.write("svn merge -c " + str(commit) + " .\n")
+    if postInst:
+        fo.write(postInst + "\n")
+
     return
 
 def main():
     args = parse_args()
     try:
         if args.vc == 'git':
-            benchmark_git(args.repo, args.start, args.end)
+            benchmark_git(args.repo, args.start, args.end, args.pre, args.post)
+        elif args.vc == 'svn':
+            benchmark_svn(args.repo, args.start, args.end, args.pre, args.post)
     except IncorrectCommitOrder as ico:
-        sys.stdout.write("Commit " + ico.end.name_rev[0:40])
-        sys.stdout.write(" comes before " + ico.start.name_rev[0:40])
+        sys.stdout.write("Commit " + ico.start)
+        sys.stdout.write(" comes before " + ico.end)
         sys.stdout.write("\n")
         sys.stdout.flush()
+    except CommitNotFound as cnf:
+        print(cnf)
 
     return
 
