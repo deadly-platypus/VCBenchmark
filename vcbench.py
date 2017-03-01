@@ -84,7 +84,6 @@ def benchmark_git(repourl, start, end, preInst, postInst):
     if os.path.exists(GIT_DIR):
         shutil.rmtree(GIT_DIR)
 
-    print 'Benchmarking git repo ' + repourl
     sys.stdout.write('Cloning')
     sys.stdout.flush()
     repo = Repo.clone_from(repourl, GIT_DIR, progress=CloneProgressPrinter())
