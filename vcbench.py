@@ -105,11 +105,12 @@ def benchmark_git(repourl, start, end, preInst, postInst):
     fo = open(GITBENCHMARK, 'w')
     print 'Outputting benchmark'
     fo.write("#!/usr/bin/sh\n")
+    fo.write("cd " + GIT_DIR + "\n")
     if preInst:
         fo.write(preInst + "\n")
     fo.write("git checkout " + commitslist[0] + "\n")
     for commit in commitslist[1:]:
-        fo.write("git merge -m \"benchmark\" " + commit)
+        fo.write("git merge -m \"benchmark\" " + commit + "\n")
     if postInst:
         fo.write(postInst + "\n")
     print 'Done.'
