@@ -114,7 +114,6 @@ def benchmark_git(repourl, start, end, preInst, postInst):
         fo.write(postInst + "\n")
     print 'Done.'
 
-    shutil.rmtree(GIT_DIR)
     return
 
 def find_svn_start(client):
@@ -131,8 +130,6 @@ def find_svn_end(client):
 def verify_svn_revs(startcommit, endcommit, client):
     start_found = False
     end_found = False
-    print(startcommit)
-    print(endcommit)
 
     for commit in client.log_default():
         if commit.revision == startcommit:
