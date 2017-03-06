@@ -43,7 +43,19 @@ def parse_args():
     parser.add_argument('repo', help='The repository location')
     parser.add_argument('-pre', help='Instruction to run before benchmark')
     parser.add_argument('-post', help='Instruction to run after benchmark')
+    parser.add_argument('-c', '--count', help="""The number of commits to use \
+             in the benchmark.""")
     return parser.parse_args()
+
+def find_git_count(repo, count):
+    commits = repo.iter_commits()
+    commit = ''
+    for commit in commits:
+        if count == 0:
+            break
+        count -= 1
+
+    return commit
 
 def find_git_start(repo):
     commits = repo.iter_commits()
@@ -80,7 +92,7 @@ def verify_git_revs(start, end, repo):
     commitslist.reverse()
     return
 
-def benchmark_git(repourl, start, end, preInst, postInst):
+def benchmark_git(repourl, start, end, preInst, postInst, count):
     if os.path.exists(GIT_DIR):
         shutil.rmtree(GIT_DIR)
 
@@ -89,21 +101,26 @@ def benchmark_git(repourl, start, end, preInst, postInst):
     repo = Repo.clone_from(repourl, GIT_DIR, progress=CloneProgressPrinter())
     print 'Done'
 
-    if not start:
-        startcommit = find_git_start(repo)
-    else:
-        startcommit = repo.commit(start)
-
-    if not end:
+    if count and count > 0:
+        startcommit = find_git_count(repo, count)
         endcommit = find_git_end(repo)
     else:
-        endcommit = repo.commit(end)
+        if not start:
+            startcommit = find_git_start(repo)
+        else:
+            startcommit = repo.commit(start)
+
+        if not end:
+            endcommit = find_git_end(repo)
+        else:
+            endcommit = repo.commit(end)
 
     verify_git_revs(startcommit, endcommit, repo)
 
     fo = open(GITBENCHMARK, 'w')
     print 'Outputting benchmark'
     fo.write("#!/usr/bin/sh\n")
+    fo.write('# URL: ' + repourl + '\n')
     fo.write("cd " + GIT_DIR + "\n")
     if preInst:
         fo.write(preInst + "\n")
@@ -119,6 +136,16 @@ def benchmark_git(repourl, start, end, preInst, postInst):
 def find_svn_start(client):
     end = 0
     for commit in client.log_default():
+        end = commit
+
+    return end.revision
+
+def find_svn_count(client, count):
+    end = 0
+    for commit in client.log_default():
+        if count == 0:
+            break
+        count -= 1
         end = commit
 
     return end.revision
@@ -153,7 +180,7 @@ def verify_svn_revs(startcommit, endcommit, client):
     commitslist.reverse()
     return
 
-def benchmark_svn(repourl, start, end, preInst, postInst):
+def benchmark_svn(repourl, start, end, preInst, postInst, count):
     if os.path.exists(SVN_DIR):
         shutil.rmtree(SVN_DIR)
 
@@ -164,18 +191,23 @@ def benchmark_svn(repourl, start, end, preInst, postInst):
     revision = client.checkout(SVN_DIR)
     print 'Done'
 
-    if not start:
-        startcommit = find_svn_start(client)
-    else:
-        startcommit = start
-
-    if not end:
+    if count and count > 0:
+        startcommit = find_svn_count(client, count)
         endcommit = find_svn_end(client)
     else:
-        endcommit = end
+        if not start:
+            startcommit = find_svn_start(client)
+        else:
+            startcommit = start
+
+        if not end:
+            endcommit = find_svn_end(client)
+        else:
+            endcommit = end
 
     verify_svn_revs(startcommit, endcommit, client)
     fo.write('#!/usr/bin/sh\n')
+    fo.write('# URL: ' + repourl + '\n')
     fo.write('cd ' + SVN_DIR + '\n')
     if preInst:
         fo.write(preInst + "\n")
@@ -191,9 +223,11 @@ def main():
     args = parse_args()
     try:
         if args.vc == 'git':
-            benchmark_git(args.repo, args.start, args.end, args.pre, args.post)
+            benchmark_git(args.repo, args.start, args.end, args.pre, args.post,
+                    int(args.count))
         elif args.vc == 'svn':
-            benchmark_svn(args.repo, args.start, args.end, args.pre, args.post)
+            benchmark_svn(args.repo, args.start, args.end, args.pre, args.post,
+                    int(args.count))
     except IncorrectCommitOrder as ico:
         sys.stdout.write("Commit " + ico.start)
         sys.stdout.write(" comes before " + ico.end)
