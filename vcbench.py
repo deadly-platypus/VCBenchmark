@@ -2,7 +2,7 @@
 
 import shutil
 import sys, argparse, os
-import svn.remote
+import svn.remote, svn.local
 from git import Repo, RemoteProgress
 from subprocess import call
 
@@ -45,6 +45,9 @@ def parse_args():
     parser.add_argument('-post', help='Instruction to run after benchmark')
     parser.add_argument('-c', '--count', help="""The number of commits to use \
              in the benchmark.""")
+    parser.add_argument('-pl', '--perline', help="""A string to put before \
+            each checkout or merge line. Supplies line number once to string. Use \
+            the standard integer format token to use.""")
     return parser.parse_args()
 
 def find_git_count(repo, count):
@@ -92,14 +95,24 @@ def verify_git_revs(start, end, repo):
     commitslist.reverse()
     return
 
-def benchmark_git(repourl, start, end, preInst, postInst, count):
+def benchmark_git(repourl, start, end, preInst, postInst, count, perline):
     if os.path.exists(GIT_DIR):
-        shutil.rmtree(GIT_DIR)
+        repo = Repo(GIT_DIR)
+        if repourl != repo.remotes['origin'].url:
+            shutil.rmtree(GIT_DIR)
+            repo = None
+        else:
+            try:
+                repo.remotes.origin.fetch()
+            except:
+                repo = None
+                shutil.rmtree(GIT_DIR)
 
-    sys.stdout.write('Cloning')
-    sys.stdout.flush()
-    repo = Repo.clone_from(repourl, GIT_DIR, progress=CloneProgressPrinter())
-    print 'Done'
+    if repo == None:
+        sys.stdout.write('Cloning')
+        sys.stdout.flush()
+        repo = Repo.clone_from(repourl, GIT_DIR, progress=CloneProgressPrinter())
+        print 'Done'
 
     if count and count > 0:
         startcommit = find_git_count(repo, count)
@@ -118,14 +131,21 @@ def benchmark_git(repourl, start, end, preInst, postInst, count):
     verify_git_revs(startcommit, endcommit, repo)
 
     fo = open(GITBENCHMARK, 'w')
+    linenum = 1
     print 'Outputting benchmark'
     fo.write("#!/usr/bin/sh\n")
     fo.write('# URL: ' + repourl + '\n')
     fo.write("cd " + GIT_DIR + "\n")
     if preInst:
         fo.write(preInst + "\n")
+    if perline:
+        fo.write(perline % linenum + ' ')
+        linenum += 1
     fo.write("git checkout " + commitslist[0] + "\n")
     for commit in commitslist[1:]:
+        if perline:
+            fo.write(perline % linenum + ' ')
+            linenum += 1
         fo.write("git merge -m \"benchmark\" " + commit + "\n")
     if postInst:
         fo.write(postInst + "\n")
@@ -180,16 +200,24 @@ def verify_svn_revs(startcommit, endcommit, client):
     commitslist.reverse()
     return
 
-def benchmark_svn(repourl, start, end, preInst, postInst, count):
+def benchmark_svn(repourl, start, end, preInst, postInst, count, perline):
     if os.path.exists(SVN_DIR):
-        shutil.rmtree(SVN_DIR)
+        client = svn.local.LocalClient(SVN_DIR)
+        if repourl != client.info()['url']:
+            client = None
+            shutil.rmtree(SVN_DIR)
+        else:
+            try:
+                client.update(SVN_DIR)
+            except:
+                client = None
+                shutil.rmtree(SVN_DIR)
 
-    fo = open(SVNBENCHMARK, 'w')
-    client = svn.remote.RemoteClient(repourl)
-    sys.stdout.write('Checking out...')
-    sys.stdout.flush()
-    revision = client.checkout(SVN_DIR)
-    print 'Done'
+    if client == None:
+        client = svn.remote.RemoteClient(repourl)
+        sys.stdout.write('Checking out...')
+        sys.stdout.flush()
+        print 'Done'
 
     if count and count > 0:
         startcommit = find_svn_count(client, count)
@@ -206,17 +234,27 @@ def benchmark_svn(repourl, start, end, preInst, postInst, count):
             endcommit = end
 
     verify_svn_revs(startcommit, endcommit, client)
+    fo = open(SVNBENCHMARK, 'w')
+    linenum = 1
+    print "Outputting benchmark..."
     fo.write('#!/usr/bin/sh\n')
     fo.write('# URL: ' + repourl + '\n')
     fo.write('cd ' + SVN_DIR + '\n')
     if preInst:
         fo.write(preInst + "\n")
+    if perline:
+        fo.write(perline % linenum + ' ')
+        linenum += 1
     fo.write('svn up -r' + str(commitslist[0]) + '\n')
     for commit in commitslist[1:]:
+        if perline:
+            fo.write(perline % linenum + " ")
+            linenum += 1
         fo.write("svn merge -c " + str(commit) + " .\n")
     if postInst:
         fo.write(postInst + "\n")
 
+    print "Done."
     return
 
 def main():
@@ -224,10 +262,10 @@ def main():
     try:
         if args.vc == 'git':
             benchmark_git(args.repo, args.start, args.end, args.pre, args.post,
-                    int(args.count))
+                    int(args.count), args.perline)
         elif args.vc == 'svn':
             benchmark_svn(args.repo, args.start, args.end, args.pre, args.post,
-                    int(args.count))
+                    int(args.count), args.perline)
     except IncorrectCommitOrder as ico:
         sys.stdout.write("Commit " + ico.start)
         sys.stdout.write(" comes before " + ico.end)
